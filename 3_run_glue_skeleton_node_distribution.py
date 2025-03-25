@@ -68,7 +68,6 @@ def set_seed(args):
     torch.backends.cudnn.benchmark = False
     torch.cuda.manual_seed_all(args.seed)
 
-#TODO: Joe ADDED DISTRIBUTED: Add new function to synchronize gradients across all workers via gather and scatter. ####################################################################
 def sync_gradients(model, args): #REMOVED BECAUSE GRADIENT SYNC IS HAPPENING THROUGH PYTORCH DISTRIBUTED
     """Synchronize gradients across all workers via gather and scatter."""
     for param in model.parameters():
@@ -106,18 +105,15 @@ def sync_gradients_all_reduce(model, args): #REMOVED BECAUSE GRADIENT SYNC IS HA
             # Average the gradients by dividing by the total number of workers
             param.grad.data /= args.world_size
 
-#TODO: Joe ADDED DISTRIBUTED: Add new function to synchronize gradients across all workers via gather and scatter. ####################################################################
 
 def train(args, train_dataset, model, tokenizer):
     """ Train the model """
 
-    #TODO: Joe ADDED DISTRIBUTED: Add new arguments for distributed training. ####################################################################
     args.train_batch_size = args.per_device_train_batch_size
     if args.world_size > 1 or args.local_rank != -1:
         train_sampler = DistributedSampler(train_dataset)
     else:
         train_sampler = RandomSampler(train_dataset)
-    #TODO: Joe ADDED DISTRIBUTED: Add new arguments for distributed training. ####################################################################
 
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
 
@@ -158,18 +154,15 @@ def train(args, train_dataset, model, tokenizer):
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
     
-    #TODO: Joe Added For Time Recording ####################################################################
     epoch_avg_times = []
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
 
-        #TODO: Joe Added For Time Recording ####################################################################
         iteration_times = []
         first_iter = True
         
         for step, batch in enumerate(epoch_iterator):
 
-            #TODO: Joe Added For Time Recording ####################################################################
             start_time = time.perf_counter()  # Start time for this iteration
 
             model.train()
@@ -205,13 +198,11 @@ def train(args, train_dataset, model, tokenizer):
                 model.zero_grad()
                 global_step += 1
 
-            #TODO: Joe Added for timing | Discard the timing for the first iteration #############################################
             end_time = time.perf_counter()
             if first_iter:
                 first_iter = False
             else:
                 iteration_times.append(end_time - start_time)
-            #TODO: Joe Added for timing | Discard the timing for the first iteration #############################################
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
@@ -221,7 +212,6 @@ def train(args, train_dataset, model, tokenizer):
             train_iterator.close()
             break
         
-        #TODO: Joe Added for timing | Discard the timing for the first iteration #############################################
         # End of epoch: Log the average iteration time for this epoch
         if iteration_times:
             avg_time = sum(iteration_times) / len(iteration_times)
@@ -229,21 +219,18 @@ def train(args, train_dataset, model, tokenizer):
             logger.info("Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(epoch+1, avg_time))
         else:
             logger.info("Epoch {}: No iteration times recorded.".format(epoch+1))
-        #TODO: Joe Added for timing | Discard the timing for the first iteration #############################################
 
         ##################################################
         # TODO(cos568): call evaluate() here to get the model performance after every epoch. (expect one line of code) #JOE DONE
         evaluate(args, model, tokenizer, prefix="Epoch " + str(_+1))
         ##################################################
 
-        #TODO: Joe Added Logging Epoch Average iteration time across all epochs #############################################
         # Optionally, log an overall average iteration time across all epochs
         if epoch_avg_times:
             overall_avg_time = sum(epoch_avg_times) / len(epoch_avg_times)
             logger.info("Overall average time per iteration (across epochs, excluding first iteration each epoch): {:.4f} seconds".format(overall_avg_time))
         else:
             logger.info("No overall iteration times recorded.")
-        #TODO: Joe Added Logging Epoch Average iteration time across all epochs #############################################
 
     return global_step, tr_loss / global_step
 
@@ -437,14 +424,12 @@ def main():
                         help="For distributed training: local_rank. If single-node training, local_rank defaults to -1.")
     
     
-    # TODO: Joe ADDED DISTRIBUTED: Add new arguments for distributed training. ####################################################################
     parser.add_argument("--master_ip", type=str, default="127.0.0.1",
                         help="IP address of the master node.")
     parser.add_argument("--master_port", type=int, default=29500,
                         help="Port of the master node.")
     parser.add_argument("--world_size", type=int, default=1,
                         help="Total number of processes (nodes) participating in training.")
-    # TODO: Joe ADDED DISTRIBUTED: Add new arguments for distributed training. ####################################################################
 
     
     args = parser.parse_args()
@@ -456,7 +441,6 @@ def main():
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
     args.n_gpu = torch.cuda.device_count()
 
-    # TODO: Joe ADDED DISTRIBUTED: Add new arguments for distributed training. ####################################################################
     if args.world_size > 1 or args.local_rank != -1:
         backend = "nccl" if torch.cuda.is_available() and not args.no_cuda else "gloo"
         torch.distributed.init_process_group(
@@ -465,7 +449,6 @@ def main():
             world_size=args.world_size,
             rank=args.local_rank
         )
-    # TODO: Joe ADDED DISTRIBUTED: Add new arguments for distributed training. ####################################################################
 
 
     # Setup logging
@@ -507,7 +490,6 @@ def main():
 
     model.to(args.device)
 
-    #TODO: Joe ADDED DISTRIBUTED: Add new code to handle distributed training. #################################################################### 
     from torch.nn.parallel import DistributedDataParallel as DDP
 
     if args.world_size > 1 or args.local_rank != -1:
@@ -516,7 +498,6 @@ def main():
             model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank)
         else:
             model = DDP(model)
-    #TODO: Joe ADDED DISTRIBUTED: Add new code to handle distributed training. ####################################################################
 
     logger.info("Training/evaluation parameters %s", args)
 
