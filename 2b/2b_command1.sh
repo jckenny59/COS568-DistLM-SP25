@@ -19,4 +19,4 @@ python 2b_run_glue.py \
     --master_ip 10.10.1.2 \
     --master_port 29500 \
     --world_size 4 \
-    --local_rank 3
+    --local_rank 1

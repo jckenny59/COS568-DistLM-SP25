@@ -382,9 +382,9 @@ def main():
                         help="For fp16: Apex AMP optimization level (e.g., O0, O1, O2, O3)")
     parser.add_argument("--local_rank", type=int, default=-1,
                         help="For distributed training: local_rank. Defaults to -1 for single-node training.")
-    # Distributed training arguments.
+    # Distributed arguments.
     parser.add_argument("--total_batch_size", type=int, default=64,
-                        help="Total batch size (per-worker batch size * number of workers), should equal 64 for Task 2/3")
+                        help="Total batch size (per-worker batch size * number of workers)(64 for Task 2/3)")
     parser.add_argument("--master_ip", type=str,
                         help="IP address for the master node (usually node-0)")
     parser.add_argument("--master_port", type=str, default="1024",
