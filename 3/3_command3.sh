@@ -1,8 +1,8 @@
 export GLUE_DIR=/proj/cos568proj2-PG0/glue_data
 export TASK_NAME=RTE
-export OUTPUT_DIR=/proj/cos568proj2-PG0/groups/jk6372/COS568-DistLM-SP25/2b/output
+export OUTPUT_DIR=/proj/cos568proj2-PG0/groups/jk6372/COS568-DistLM-SP25/3/output
 
-python 2b_run_glue.py \
+python 3_run_glue.py \
     --model_type bert \
     --model_name_or_path bert-base-cased \
     --task_name RTE \
