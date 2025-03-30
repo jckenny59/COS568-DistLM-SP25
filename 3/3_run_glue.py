@@ -160,9 +160,9 @@ def train(args, train_dataset, model, tokenizer):
     all_iter_times = []
     losses = []
     
-    for epoch in train_iterator:
+    for _ in train_iterator:
         # Set the epoch for the distributed sampler to ensure proper shuffling.
-        train_sampler.set_epoch(epoch)
+        train_sampler.set_epoch(_)
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         iteration_times = []
         first_iter = True
@@ -199,7 +199,7 @@ def train(args, train_dataset, model, tokenizer):
 
             end_time = time.time()  # Use time.time() for timing
             if step > 0:
-                iter_times.append(end_time - start_time)
+                iteration_times.append(end_time - start_time)
 
             with open(args.output_train_file, "a") as writer:
                 writer.write(f"{step},{loss.item()},{end_time - start_time}\n")
