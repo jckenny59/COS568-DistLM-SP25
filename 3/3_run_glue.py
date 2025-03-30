@@ -160,7 +160,7 @@ def train(args, train_dataset, model, tokenizer):
     all_iter_times = []
     losses = []
     epoch_avg_times = []
-    
+
     for _ in train_iterator:
         # Set the epoch for the distributed sampler to ensure proper shuffling.
         train_sampler.set_epoch(_)
@@ -239,10 +239,10 @@ def train(args, train_dataset, model, tokenizer):
             epoch_avg_times.append(avg_time)
             logger.info("Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(_+1, avg_time))
         else:
-            logger.info("Epoch %d: No iteration times recorded.", epoch)
+            logger.info("Epoch %d: No iteration times recorded.", _)
 
         # Evaluate after each epoch.
-        evaluate(args, model, tokenizer, prefix="Epoch " + str(epoch+1))
+        evaluate(args, model, tokenizer, prefix="Epoch " + str(_+1))
 
     if all_iter_times:
         overall_avg_time = sum(all_iter_times) / len(all_iter_times)
