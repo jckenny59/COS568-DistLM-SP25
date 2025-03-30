@@ -157,7 +157,7 @@ def train(args, train_dataset, model, tokenizer):
     model.zero_grad()
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
-    
+    losses = []
     epoch_avg_times = []
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
@@ -188,6 +188,9 @@ def train(args, train_dataset, model, tokenizer):
                 ##################################################
                 # TODO: perform backward pass here (expect one line of code)
                 loss.backward()
+                losses.append(loss.item())
+
+
                 # TODO: perform manual gradient synchronization using sync_gradients_all_reduce() or sync_gradients()
                 if args.world_size > 1 or args.local_rank != -1:
                     sync_gradients_all_reduce(model, args)
@@ -204,6 +207,9 @@ def train(args, train_dataset, model, tokenizer):
                 model.zero_grad()
                 global_step += 1
 
+            with open(args.output_train_file, "a") as writer:
+                writer.write(f"epoch:{_} step:{step} loss:{loss.item()}\n")
+
             end_time = time.time()  # Updated timing call
             if first_iter:
                 first_iter = False
@@ -213,6 +219,11 @@ def train(args, train_dataset, model, tokenizer):
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
                 break
+
+            with open(args.local_out_file, "w") as writer:
+                for i, loss in enumerate(losses):
+                    writer.write(f"{loss}\n")
+
 
         if args.max_steps > 0 and global_step > args.max_steps:
             train_iterator.close()
@@ -295,7 +306,7 @@ def evaluate(args, model, tokenizer, prefix=""):
         results.update(result)
 
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-        with open(output_eval_file, "w") as writer:
+        with open(output_eval_file, "a") as writer:
             logger.info("***** Eval results {} *****".format(prefix))
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
@@ -446,6 +457,10 @@ def main():
     output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
     args.output_eval_file = output_eval_file
     with open(output_eval_file, "w") as writer:
+        pass
+
+    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"__output.txt") # evaluation
+    with open(args.local_out_file, "w") as writer:
         pass
 
     output_train_file = os.path.join(args.output_dir, "train_results.txt")
