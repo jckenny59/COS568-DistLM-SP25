@@ -1,6 +1,4 @@
 /__pycache__
 *.out
 
-glue_data/MNLI/original/multinli_1.0_train.jsonl
-glue_data/MNLI/original/multinli_1.0_train.txt
-glue_data/MNLI/train.tsv
+/glue_data
