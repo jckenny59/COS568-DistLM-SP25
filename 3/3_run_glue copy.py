@@ -158,15 +158,11 @@ def train(args, train_dataset, model, tokenizer):
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # For reproducibility
     all_iter_times = []
-    losses = []
-    
     for epoch in train_iterator:
         # Set the epoch for the distributed sampler to ensure proper shuffling.
         train_sampler.set_epoch(epoch)
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
-        iteration_times = []
-        first_iter = True
-        
+        iter_times = []
         for step, batch in enumerate(epoch_iterator):
             start_time = time.time()  # Use time.time() for timing
 
@@ -191,8 +187,6 @@ def train(args, train_dataset, model, tokenizer):
             else:
                 # With DDP, gradient synchronization is handled automatically.
                 loss.backward()
-                losses.append(loss.item())
-
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
             tr_loss += loss.item()
@@ -210,33 +204,16 @@ def train(args, train_dataset, model, tokenizer):
                 model.zero_grad()
                 global_step += 1
 
-            with open(args.output_train_file, "a") as writer:
-                writer.write(f"epoch:{_} step:{step} loss:{loss.item()}\n")
-
-            end_time = time.time()  # Updated timing call
-            if first_iter:
-                first_iter = False
-            else:
-                iteration_times.append(end_time - start_time)
-
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
                 break
 
-            with open(args.local_out_file, "w") as writer:
-                for i, loss in enumerate(losses):
-                    writer.write(f"{loss}\n")
-
-
-        if args.max_steps > 0 and global_step > args.max_steps:
-            train_iterator.close()
-            break
-        
-        # End of epoch: Log the average iteration time for this epoch
-        if iteration_times:
-            avg_time = sum(iteration_times) / len(iteration_times)
-            epoch_avg_times.append(avg_time)
-            logger.info("Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(_+1, avg_time))
+        if iter_times:
+            avg_time = sum(iter_times) / len(iter_times)
+            logger.info("Epoch %d: Average iteration time (excluding first iteration): %.4f seconds", epoch, avg_time)
+            with open(args.output_train_file, "a") as writer:
+                writer.write(f"Epoch {epoch}: Average iteration time (excluding first iteration): {avg_time}\n")
+            all_iter_times.append(avg_time)
         else:
             logger.info("Epoch %d: No iteration times recorded.", epoch)
 
@@ -299,7 +276,7 @@ def evaluate(args, model, tokenizer, prefix=""):
         results.update(result)
 
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-        with open(output_eval_file, "a") as writer:
+        with open(output_eval_file, "w") as writer:
             logger.info("***** Eval results {} *****".format(prefix))
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
@@ -445,10 +422,6 @@ def main():
     output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
     args.output_eval_file = output_eval_file
     with open(output_eval_file, "w") as writer:
-        pass
-
-    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"__output.txt") # evaluation
-    with open(args.local_out_file, "w") as writer:
         pass
 
     output_train_file = os.path.join(args.output_dir, "train_results.txt")
