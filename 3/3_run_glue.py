@@ -159,6 +159,7 @@ def train(args, train_dataset, model, tokenizer):
     set_seed(args)  # For reproducibility
     all_iter_times = []
     losses = []
+    epoch_avg_times = []
     
     for _ in train_iterator:
         # Set the epoch for the distributed sampler to ensure proper shuffling.
