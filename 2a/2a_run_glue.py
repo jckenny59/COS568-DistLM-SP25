@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map.keys()) 
                   for conf in (BertConfig, XLNetConfig, XLMConfig, RobertaConfig)), ())
+
 MODEL_CLASSES = {
     'bert': (BertConfig, BertForSequenceClassification, BertTokenizer),
     'xlnet': (XLNetConfig, XLNetForSequenceClassification, XLNetTokenizer),
@@ -176,9 +177,9 @@ def train(args, train_dataset, model, tokenizer):
                 torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
             else:
                 ##################################################
-                # TODO: perform backward pass here (expect one line of code)
+                # Perform backward pass.
                 loss.backward()
-                # TODO: perform manual gradient synchronization using sync_gradients()
+                # Perform manual gradient synchronization using sync_gradients().
                 if args.world_size > 1 or args.local_rank != -1:
                     sync_gradients(model, args)
                 ##################################################
@@ -188,17 +189,22 @@ def train(args, train_dataset, model, tokenizer):
             end_time = time.time()
             if step > 0:
                 iter_times.append(end_time - start_time)
+            # Log CSV-style output.
             with open(args.output_train_file, "a") as writer:
                 writer.write(f"{step},{loss.item()},{end_time - start_time}\n")
 
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 ##################################################
-                # TODO: perform a single optimization step (parameter update) by invoking the optimizer
+                # Perform a single optimization step.
                 optimizer.step()
                 ##################################################
-                scheduler.step()  # Update learning rate schedule
+                scheduler.step()  # Update learning rate schedule.
                 model.zero_grad()
                 global_step += 1
+
+                # Additional logging similar to File 1.
+                with open(args.output_train_file, "a") as writer:
+                    writer.write(f"epoch:{epoch} step:{step} loss:{loss.item()}\n")
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()

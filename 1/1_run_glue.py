@@ -126,11 +126,11 @@ def train(args, train_dataset, model, tokenizer):
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always a tuple
 
-            # --- Added logging from File 1: log the first few iterations ---
+            
+            output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
             if step < 5:
-                with open(args.output_file, "a") as writer:
+                with open(output_eval_file, "a") as writer:
                     writer.write(f"epoch:{epoch_itr} step:{step} loss:{loss.item()}\n")
-            # -------------------------------------------------------------------
 
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
@@ -220,11 +220,17 @@ def evaluate(args, model, tokenizer, prefix=""):
         results.update(result)
 
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-        with open(output_eval_file, "w") as writer:
+        with open(output_eval_file, "a") as writer:
             logger.info("***** Eval results {} *****".format(prefix))
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
+
+        # with open(args.output_file, "a") as writer:
+        #     logger.info("***** Eval results {} *****".format(prefix))
+        #     for key in sorted(result.keys()):
+        #         logger.info("  %s = %s", key, str(result[key]))
+        #         writer.write("%s = %s\n" % (key, str(result[key])))
 
     return results
 
