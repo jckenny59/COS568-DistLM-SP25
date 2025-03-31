@@ -128,6 +128,9 @@ def train(args, train_dataset, model, tokenizer):
 
             
             output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
+            if not os.path.exists(output_eval_file) and args.local_rank in [-1, 0]:
+                os.makedirs(args.output_dir)
+                
             if step < 5:
                 with open(output_eval_file, "a") as writer:
                     writer.write(f"epoch:{epoch_itr} step:{step} loss:{loss.item()}\n")
@@ -219,6 +222,7 @@ def evaluate(args, model, tokenizer, prefix=""):
         result = compute_metrics(eval_task, preds, out_label_ids)
         results.update(result)
 
+        print ("***** Eval results {} *****".format(results))
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
         with open(output_eval_file, "a") as writer:
             logger.info("***** Eval results {} *****".format(prefix))
