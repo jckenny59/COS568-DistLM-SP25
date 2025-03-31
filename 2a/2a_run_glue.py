@@ -150,12 +150,17 @@ def train(args, train_dataset, model, tokenizer):
     model.zero_grad()
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # For reproducibility
+    losses = []
     all_iter_times = []
-    for epoch in train_iterator:
+    epoch_average_times = []
+    
+    for _ in train_iterator:
         # Set the epoch for the distributed sampler to ensure proper shuffling.
-        train_sampler.set_epoch(epoch)
+        train_sampler.set_epoch(_)
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
-        iter_times = []  # For the current epoch
+        iteration_times = []
+        first_iter = True
+        
         for step, batch in enumerate(epoch_iterator):
             start_time = time.time()
             
@@ -179,7 +184,10 @@ def train(args, train_dataset, model, tokenizer):
                 ##################################################
                 # Perform backward pass.
                 loss.backward()
-                # Perform manual gradient synchronization using sync_gradients().
+                losses.append(loss.item())
+
+
+                # TODO: perform manual gradient synchronization using sync_gradients_all_reduce() or sync_gradients()
                 if args.world_size > 1 or args.local_rank != -1:
                     sync_gradients(model, args)
                 ##################################################
@@ -188,7 +196,7 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             end_time = time.time()
             if step > 0:
-                iter_times.append(end_time - start_time)
+                iteration_times.append(end_time - start_time)
             # Log CSV-style output.
             with open(args.output_train_file, "a") as writer:
                 writer.write(f"{step},{loss.item()},{end_time - start_time}\n")
@@ -202,22 +210,35 @@ def train(args, train_dataset, model, tokenizer):
                 model.zero_grad()
                 global_step += 1
 
-                # Additional logging similar to File 1.
-                with open(args.output_train_file, "a") as writer:
-                    writer.write(f"epoch:{epoch} step:{step} loss:{loss.item()}\n")
+            with open(args.output_train_file, "a") as writer:
+                writer.write(f"epoch:{_} step:{step} loss:{loss.item()}\n")
+
+            end_time = time.time()  # Updated timing call
+            if first_iter:
+                first_iter = False
+            else:
+                iteration_times.append(end_time - start_time)
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
                 break
 
-        if iter_times:
-            avg_iter_time = sum(iter_times) / len(iter_times)
-            logger.info("Epoch %d: Average iteration time (excluding first iteration): %.4f seconds", epoch, avg_iter_time)
-            with open(args.output_train_file, "a") as writer:
-                writer.write(f"Epoch {epoch}: Average iteration time (excluding first iteration): {avg_iter_time}\n")
-            all_iter_times.append(avg_iter_time)
+            with open(args.local_out_file, "w") as writer:
+                for i, loss in enumerate(losses):
+                    writer.write(f"{loss}\n")
+
+
+        if args.max_steps > 0 and global_step > args.max_steps:
+            train_iterator.close()
+            break
+        
+        # End of epoch: Log the average iteration time for this epoch
+        if iteration_times:
+            avg_time = sum(iteration_times) / len(iteration_times)
+            epoch_average_times.append(avg_time)
+            logger.info("Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(_+1, avg_time))
         else:
-            logger.info("Epoch %d: No iteration times recorded.", epoch)
+            logger.info("Epoch %d: No iteration times recorded.", _)
 
         # Call evaluation after each epoch.
         evaluate(args, model, tokenizer, prefix="")
@@ -225,6 +246,12 @@ def train(args, train_dataset, model, tokenizer):
     if all_iter_times:
         overall_avg_time = sum(all_iter_times) / len(all_iter_times)
         logger.info("Overall average iteration time (excluding first iterations): %.4f seconds", overall_avg_time)
+    
+        if epoch_average_times:
+            overall_avg_time = sum(epoch_average_times) / len(epoch_average_times)
+            logger.info("Overall average time per iteration (across epochs, excluding first iteration each epoch): {:.4f} seconds".format(overall_avg_time))
+        else:
+            logger.info("No overall iteration times recorded.")
     return global_step, tr_loss / global_step
 
 
@@ -272,8 +299,8 @@ def evaluate(args, model, tokenizer, prefix=""):
         result = compute_metrics(eval_task, preds, out_label_ids)
         results.update(result)
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-        with open(output_eval_file, "w") as writer:
-            logger.info("***** Eval results %s *****", prefix)
+        with open(output_eval_file, "a") as writer:
+            logger.info("***** Eval results {} *****".format(prefix))
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
@@ -407,6 +434,11 @@ def main():
     args.output_eval_file = output_eval_file
     with open(output_eval_file, "w") as writer:
         pass
+
+    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"__output.txt") # evaluation
+    with open(args.local_out_file, "w") as writer:
+        pass
+
     output_train_file = os.path.join(args.output_dir, "train_results.txt")
     args.output_train_file = output_train_file
     with open(output_train_file, "w") as writer:
