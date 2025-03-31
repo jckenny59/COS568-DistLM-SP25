@@ -1,6 +1,7 @@
 export GLUE_DIR=/proj/cos568proj2-PG0/glue_data
 export TASK_NAME=RTE
-export OUTPUT_DIR=/proj/cos568proj2-PG0/groups/jk6372/COS568-DistLM-SP25/1/output
+export OUTPUT_DIR=/proj/cos568proj2-PG0/groups/jk6372/testing/COS568-DistLM-SP25/1/output
+# export OUTPUT_DIR=/proj/cos568proj2-PG0/groups/jk6372/COS568-DistLM-SP25/1/output
 
 python3 1_run_glue.py \
   --model_type bert \
