@@ -75,38 +75,33 @@ def sync_gradients(model, args):
     for param in model.parameters():
         if param.grad is None:
             continue
-        # Gather gradients on worker 0.
+
         if args.local_rank == 0:
-            gather_list = [torch.zeros_like(param.grad.data) for _ in range(args.world_size)]
+            gather = [torch.zeros_like(param.grad.data) for _ in range(args.world_size)]
         else:
-            gather_list = None
-        torch.distributed.gather(param.grad.data, gather_list, dst=0)
+            gather = None
+        torch.distributed.gather(param.grad.data, gather, dst=0)
         
-        # On worker 0, compute the average gradient.
         if args.local_rank == 0:
-            grad_stack = torch.stack(gather_list)
-            grad_sum = torch.sum(grad_stack, dim=0)
-            grad_avg = grad_sum / float(args.world_size)
+            gradient_stack = torch.stack(gather)
+            gradradient_sum = torch.sum(gradient_stack, dim=0)
+            gradient_avg = gradradient_sum / float(args.world_size)
         else:
-            grad_avg = torch.empty_like(param.grad.data)
+            gradient_avg = torch.empty_like(param.grad.data)
         
-        # Scatter the averaged gradient back to all workers.
         if args.local_rank == 0:
-            scatter_list = [grad_avg.clone() for _ in range(args.world_size)]
+            scatter = [gradient_avg.clone() for _ in range(args.world_size)]
         else:
-            scatter_list = None
-        torch.distributed.scatter(grad_avg, scatter_list, src=0)
+            scatter = None
+        torch.distributed.scatter(gradient_avg, scatter, src=0)
         
-        # Update the parameter's gradient with the averaged gradient.
-        param.grad.data.copy_(grad_avg)
+        param.grad.data.copy_(gradient_avg)
 
 def sync_gradients_all_reduce(model, args):
     """Synchronize gradients across all workers using all_reduce."""
     for param in model.parameters():
         if param.grad is not None:
-            # Sum gradients across all workers
             torch.distributed.all_reduce(param.grad.data, op=torch.distributed.ReduceOp.SUM)
-            # Average the gradients by dividing by the total number of workers
             param.grad.data /= args.world_size
 
 def train(args, train_dataset, model, tokenizer):
@@ -202,9 +197,6 @@ def train(args, train_dataset, model, tokenizer):
             if step > 0:
                 iteration_times.append(end_time - start_time)
 
-            with open(args.output_train_file, "a") as writer:
-                writer.write(f"{step},{loss.item()},{end_time - start_time}\n")
-
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule.
@@ -233,20 +225,33 @@ def train(args, train_dataset, model, tokenizer):
             train_iterator.close()
             break
         
-        # End of epoch: Log the average iteration time for this epoch
         if iteration_times:
             avg_time = sum(iteration_times) / len(iteration_times)
             epoch_avg_times.append(avg_time)
-            logger.info("Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(_+1, avg_time))
+
+            logger.info("Node {} Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(
+                args.local_rank, _ + 1, avg_time))
+
+            with open(args.output_train_file, "a") as writer:
+                writer.write("Node {} Epoch {} Avg Iteration Time (s): {:.4f}\n".format(
+                    args.local_rank, _ + 1, avg_time))
         else:
-            logger.info("Epoch %d: No iteration times recorded.", _)
+            logger.info("Node {} Epoch {}: No iteration times recorded.".format(args.local_rank, _ + 1))
 
-        # Evaluate after each epoch.
-        evaluate(args, model, tokenizer, prefix="Epoch " + str(_+1))
+        ##################################################
+        # TODO: Run evaluation at the end of each epoch
+        ##################################################
+        evaluate(args, model, tokenizer, prefix="Epoch " + str(_ + 1))
 
-    if all_iter_times:
-        overall_avg_time = sum(all_iter_times) / len(all_iter_times)
-        logger.info("Overall average iteration time (excluding first iterations): %.4f seconds", overall_avg_time)
+        ##################################################
+        # TODO: Log overall average iteration time
+        ##################################################
+        if epoch_avg_times:
+            overall_avg_time = sum(epoch_avg_times) / len(epoch_avg_times)
+            logger.info("Overall average time per iteration (across epochs, excluding first iteration each epoch): {:.4f} seconds".format(overall_avg_time))
+        else:
+            logger.info("No overall iteration times recorded.")
+
     return global_step, tr_loss / global_step
 
 
@@ -427,19 +432,21 @@ def main():
     parser.add_argument("--local_rank", type=int, default=-1,
                         help="For distributed training: local_rank. Defaults to -1 for single-node training.")
     
-    # Distributed training arguments.
+    # Distributed arguments.
     parser.add_argument("--total_batch_size", type=int, default=64,
                         help="Total batch size (per-worker batch size * number of workers)(64 for Task 2/3)")
     parser.add_argument("--master_ip", type=str, default="10.10.1.2",
-                        help="IP address for the master node (usually node-0)")
+                        help="IP address of the master node.")
     parser.add_argument("--master_port", type=str, default="1024",
-                        help="Port for the master node (usually node-0)")
-    parser.add_argument("--world_size", type=int, default=4,
-                        help="Number of workers, should equal 4 for Tasks 2/3")
+                        help="Port of the master node.")
+    parser.add_argument("--world_size", type=int, default=1,
+                        help="Total number of processes (nodes) participating in training.")
+
+    
     args = parser.parse_args()
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
-        raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir.".format(args.output_dir))
+        raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
 
     os.makedirs(args.output_dir, exist_ok=True)
     
@@ -448,7 +455,7 @@ def main():
     with open(output_eval_file, "w") as writer:
         pass
 
-    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"__output.txt") # evaluation
+    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"_node_loss_results.txt") # evaluation
     with open(args.local_out_file, "w") as writer:
         pass
 

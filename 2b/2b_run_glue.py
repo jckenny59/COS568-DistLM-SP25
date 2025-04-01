@@ -74,39 +74,34 @@ def sync_gradients(model, args):
     for param in model.parameters():
         if param.grad is None:
             continue
-        # Gather gradients on worker 0.
+
         if args.local_rank == 0:
-            gather_list = [torch.zeros_like(param.grad.data) for _ in range(args.world_size)]
+            gather = [torch.zeros_like(param.grad.data) for _ in range(args.world_size)]
         else:
-            gather_list = None
-        torch.distributed.gather(param.grad.data, gather_list, dst=0)
+            gather = None
+        torch.distributed.gather(param.grad.data, gather, dst=0)
         
-        # On worker 0, compute the average gradient.
         if args.local_rank == 0:
-            grad_stack = torch.stack(gather_list)
-            grad_sum = torch.sum(grad_stack, dim=0)
-            grad_avg = grad_sum / float(args.world_size)
+            gradient_stack = torch.stack(gather)
+            gradradient_sum = torch.sum(gradient_stack, dim=0)
+            gradient_avg = gradradient_sum / float(args.world_size)
         else:
-            grad_avg = torch.empty_like(param.grad.data)
+            gradient_avg = torch.empty_like(param.grad.data)
         
-        # Scatter the averaged gradient back to all workers.
         if args.local_rank == 0:
-            scatter_list = [grad_avg.clone() for _ in range(args.world_size)]
+            scatter = [gradient_avg.clone() for _ in range(args.world_size)]
         else:
-            scatter_list = None
-        torch.distributed.scatter(grad_avg, scatter_list, src=0)
+            scatter = None
+        torch.distributed.scatter(gradient_avg, scatter, src=0)
         
-        # Update the parameter's gradient with the averaged gradient.
-        param.grad.data.copy_(grad_avg)
+        param.grad.data.copy_(gradient_avg)
 
 
 def sync_gradients_all_reduce(model, args):
     """Synchronize gradients across all workers using all_reduce."""
     for param in model.parameters():
         if param.grad is not None:
-            # Sum gradients across all workers
             torch.distributed.all_reduce(param.grad.data, op=torch.distributed.ReduceOp.SUM)
-            # Average the gradients by dividing by the total number of workers
             param.grad.data /= args.world_size
 
 
@@ -127,14 +122,14 @@ def train(args, train_dataset, model, tokenizer):
     else:
         t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
-    # Prepare optimizer and schedule (linear warmup and decay)
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-        ]
+    ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
+
     if args.fp16:
         try:
             from apex import amp
@@ -142,13 +137,12 @@ def train(args, train_dataset, model, tokenizer):
             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
         model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
-    # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
     logger.info("  Instantaneous batch size per device = %d", args.per_device_train_batch_size)
     logger.info("  Total train batch size (w. parallel, distributed & accumulation) = %d",
-                   args.train_batch_size * args.gradient_accumulation_steps * (torch.distributed.get_world_size() if args.local_rank != -1 else 1))
+                args.train_batch_size * args.gradient_accumulation_steps * (torch.distributed.get_world_size() if args.local_rank != -1 else 1))
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", t_total)
 
@@ -156,26 +150,26 @@ def train(args, train_dataset, model, tokenizer):
     tr_loss, logging_loss = 0.0, 0.0
     model.zero_grad()
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
-    set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
+    set_seed(args)
     losses = []
     epoch_avg_times = []
+
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         iteration_times = []
         first_iter = True
-        
-        for step, batch in enumerate(epoch_iterator):
 
-            start_time = time.time()  # Updated timing call
+        for step, batch in enumerate(epoch_iterator):
+            start_time = time.time()
 
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
-            inputs = {'input_ids':      batch[0],
+            inputs = {'input_ids': batch[0],
                       'attention_mask': batch[1],
-                      'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                      'labels':         batch[3]}
+                      'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
+                      'labels': batch[3]}
             outputs = model(**inputs)
-            loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
+            loss = outputs[0]
 
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
@@ -190,7 +184,6 @@ def train(args, train_dataset, model, tokenizer):
                 loss.backward()
                 losses.append(loss.item())
 
-
                 # TODO: perform manual gradient synchronization using sync_gradients_all_reduce() or sync_gradients()
                 if args.world_size > 1 or args.local_rank != -1:
                     sync_gradients_all_reduce(model, args)
@@ -203,14 +196,14 @@ def train(args, train_dataset, model, tokenizer):
                 # TODO: perform a single optimization step (parameter update) by invoking the optimizer
                 optimizer.step()
                 ##################################################
-                scheduler.step()  # Update learning rate schedule
+                scheduler.step()
                 model.zero_grad()
                 global_step += 1
 
             with open(args.output_train_file, "a") as writer:
                 writer.write(f"epoch:{_} step:{step} loss:{loss.item()}\n")
 
-            end_time = time.time()  # Updated timing call
+            end_time = time.time()
             if first_iter:
                 first_iter = False
             else:
@@ -224,24 +217,31 @@ def train(args, train_dataset, model, tokenizer):
                 for i, loss in enumerate(losses):
                     writer.write(f"{loss}\n")
 
-
         if args.max_steps > 0 and global_step > args.max_steps:
             train_iterator.close()
             break
-        
-        # End of epoch: Log the average iteration time for this epoch
+
         if iteration_times:
             avg_time = sum(iteration_times) / len(iteration_times)
             epoch_avg_times.append(avg_time)
-            logger.info("Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(_+1, avg_time))
+
+            logger.info("Node {} Epoch {} average time per iteration (excluding first iteration): {:.4f} seconds".format(
+                args.local_rank, _ + 1, avg_time))
+
+            with open(args.output_train_file, "a") as writer:
+                writer.write("Node {} Epoch {} Avg Iteration Time (s): {:.4f}\n".format(
+                    args.local_rank, _ + 1, avg_time))
         else:
-            logger.info("Epoch {}: No iteration times recorded.".format(_+1))
+            logger.info("Node {} Epoch {}: No iteration times recorded.".format(args.local_rank, _ + 1))
 
         ##################################################
-        evaluate(args, model, tokenizer, prefix="Epoch " + str(_+1))
+        # TODO: Run evaluation at the end of each epoch
         ##################################################
+        evaluate(args, model, tokenizer, prefix="Epoch " + str(_ + 1))
 
-        # Optionally, log an overall average iteration time across all epochs
+        ##################################################
+        # TODO: Log overall average iteration time
+        ##################################################
         if epoch_avg_times:
             overall_avg_time = sum(epoch_avg_times) / len(epoch_avg_times)
             logger.info("Overall average time per iteration (across epochs, excluding first iteration each epoch): {:.4f} seconds".format(overall_avg_time))
@@ -264,11 +264,9 @@ def evaluate(args, model, tokenizer, prefix=""):
             os.makedirs(eval_output_dir)
 
         args.eval_batch_size = args.per_device_eval_batch_size
-        # Note that DistributedSampler samples randomly
         eval_sampler = SequentialSampler(eval_dataset)
         eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
-        # Eval!
         logger.info("***** Running evaluation {} *****".format(prefix))
         logger.info("  Num examples = %d", len(eval_dataset))
         logger.info("  Batch size = %d", args.eval_batch_size)
@@ -279,12 +277,13 @@ def evaluate(args, model, tokenizer, prefix=""):
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
             batch = tuple(t.to(args.device) for t in batch)
-
             with torch.no_grad():
-                inputs = {'input_ids':      batch[0],
-                          'attention_mask': batch[1],
-                          'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM and RoBERTa don't use segment_ids
-                          'labels':         batch[3]}
+                inputs = {
+                    'input_ids':      batch[0],
+                    'attention_mask': batch[1],
+                    'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
+                    'labels':         batch[3]
+                }
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
 
@@ -440,9 +439,9 @@ def main():
     # Distributed arguments.
     parser.add_argument("--total_batch_size", type=int, default=64,
                         help="Total batch size (per-worker batch size * number of workers)(64 for Task 2/3)")
-    parser.add_argument("--master_ip", type=str, default="127.0.0.1",
+    parser.add_argument("--master_ip", type=str, default="10.10.1.2",
                         help="IP address of the master node.")
-    parser.add_argument("--master_port", type=int, default=29500,
+    parser.add_argument("--master_port", type=str, default="1024",
                         help="Port of the master node.")
     parser.add_argument("--world_size", type=int, default=1,
                         help="Total number of processes (nodes) participating in training.")
@@ -459,7 +458,7 @@ def main():
     with open(output_eval_file, "w") as writer:
         pass
 
-    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"__output.txt") # evaluation
+    args.local_out_file = os.path.join(args.output_dir, str(args.local_rank)+"_node_loss_results.txt") # evaluation
     with open(args.local_out_file, "w") as writer:
         pass
 
