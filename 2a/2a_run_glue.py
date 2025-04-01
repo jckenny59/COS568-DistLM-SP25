@@ -76,30 +76,27 @@ def sync_gradients(model, args):
     for param in model.parameters():
         if param.grad is None:
             continue
-        # Gather gradients on worker 0.
+
         if args.local_rank == 0:
-            gather_list = [torch.zeros_like(param.grad.data) for _ in range(args.world_size)]
+            gather = [torch.zeros_like(param.grad.data) for _ in range(args.world_size)]
         else:
-            gather_list = None
-        torch.distributed.gather(param.grad.data, gather_list, dst=0)
+            gather = None
+        torch.distributed.gather(param.grad.data, gather, dst=0)
         
-        # On worker 0, compute the average gradient.
         if args.local_rank == 0:
-            grad_stack = torch.stack(gather_list)
-            grad_sum = torch.sum(grad_stack, dim=0)
-            grad_avg = grad_sum / float(args.world_size)
+            gradient_stack = torch.stack(gather)
+            gradradient_sum = torch.sum(gradient_stack, dim=0)
+            gradient_avg = gradradient_sum / float(args.world_size)
         else:
-            grad_avg = torch.empty_like(param.grad.data)
+            gradient_avg = torch.empty_like(param.grad.data)
         
-        # Scatter the averaged gradient back to all workers.
         if args.local_rank == 0:
-            scatter_list = [grad_avg.clone() for _ in range(args.world_size)]
+            scatter = [gradient_avg.clone() for _ in range(args.world_size)]
         else:
-            scatter_list = None
-        torch.distributed.scatter(grad_avg, scatter_list, src=0)
+            scatter = None
+        torch.distributed.scatter(gradient_avg, scatter, src=0)
         
-        # Update the parameter's gradient with the averaged gradient.
-        param.grad.data.copy_(grad_avg)
+        param.grad.data.copy_(gradient_avg)
 
 
 def train(args, train_dataset, model, tokenizer):
