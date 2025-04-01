@@ -13,7 +13,7 @@ python 2b_run_glue.py \
     --per_device_train_batch_size 16 \
     --total_batch_size 64 \
     --learning_rate 2e-5 \
-    --num_train_epochs 3 \
+    --num_train_epochs 1 \
     --output_dir $OUTPUT_DIR/ \
     --overwrite_output_dir \
     --master_ip 10.10.1.2 \
