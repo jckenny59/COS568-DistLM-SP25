@@ -197,9 +197,6 @@ def train(args, train_dataset, model, tokenizer):
             if step > 0:
                 iteration_times.append(end_time - start_time)
 
-            with open(args.output_train_file, "a") as writer:
-                writer.write(f"{step},{loss.item()},{end_time - start_time}\n")
-
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule.

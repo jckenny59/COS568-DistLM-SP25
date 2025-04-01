@@ -193,9 +193,6 @@ def train(args, train_dataset, model, tokenizer):
             end_time = time.time()
             if step > 0:
                 iteration_times.append(end_time - start_time)
-            # Log CSV-style output.
-            with open(args.output_train_file, "a") as writer:
-                writer.write(f"{step},{loss.item()},{end_time - start_time}\n")
 
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 ##################################################
